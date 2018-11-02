@@ -75,4 +75,4 @@ You'll see that it does say there "20h14m38s" remaining (!), this tool is *not* 
 
 ## Authors
 
-- **Brian Leishman** - [Stirling Marketing Group](https://github.com/StirlingMarketingGroup)# imap2helpscout
+- **Brian Leishman** - [Stirling Marketing Group](https://github.com/StirlingMarketingGroup)
