@@ -36,6 +36,8 @@ And clicking "Create My App" and following the dialog that follows.
 
 ![1541198633111](https://d159l1kvshziji.cloudfront.net/i/KSn/C.jpg)
 
+Lastly, this program uses Image Magick, so that will also need to be installed for this to build and run. You can grab the installation steps from here https://github.com/gographics/imagick.
+
 ## Usage
 
 imap2helpscout runs as a command line program, with a few basic options that's needed to get the job done. First, all the options
@@ -53,13 +55,22 @@ imap2helpscout runs as a command line program, with a few basic options that's n
         your Help Scout App ID
   -s string
         your Help Scout App Secret
+  -exclude-folder string
+		A folder to exclude from the import
+		(tip: you can specify this flag multiple times)
+  -resume-folder string
+		A folder to start from, useful for resuming when crashes occur
+  -resume-uid int
+		An email UID to start from
+		Both of the resume flags needs to be specified at the same
+		time for them to work
   -v    verbose; prints all commands to the IMAP server and to the Help Scout API
   -vv	ULTRA verbose; prints everything above AND *every* response from both the IMAP server and the Help Scout API, including all post data to the Help Scout API (even attachments encoded as base64 in the post data)
 ```
 
 All of that together actually being used will look a little something like this (password, App ID & Secret are obviously not real, but you can try)
 
-```shel
+```shell
 imap2helpscout -u brian@stumpyinc.com -p 'totallylegitpassword' -h imap.gmail.com -P 993 -a d6fa720430e2fde64a94ab427f7e5a17 -s 45303bcebc49241787fd9cb39bd0731f
 Getting some things ready, one sec...
 1982 / 137976 [=>---------------------------------------------------]   1.44% 20h14m38s
@@ -72,7 +83,9 @@ You'll see that it does say there "20h14m38s" remaining (!), this tool is *not* 
 - [BrianLeishman/go-imap](https://github.com/BrianLeishman/go-imap) - Simple IMAP Client Library
 - [BrianLeishman/go-helpscout](https://github.com/BrianLeishman/go-helpscout) - Small Help Scout API Wrapper in Golang
 - [cheggaaa/pb](https://github.com/cheggaaa/pb) - Console progress bar for Golang
+- [gographics/imagick](https://github.com/gographics/imagick) - Go binding to ImageMagick's MagickWand C API
+- [yusukebe/go-pngquant](https://github.com/yusukebe/go-pngquant) - Golang wrapper of pngquant / PNG compressor
 
 ## Authors
 
-- **Brian Leishman** - [Stirling Marketing Group](https://github.com/StirlingMarketingGroup)
+- Brian Leishman - [Stirling Marketing Group](https://github.com/StirlingMarketingGroup)
