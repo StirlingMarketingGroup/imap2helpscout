@@ -50,7 +50,7 @@ imap2helpscout runs as a command line program, with a few basic options that's n
   -h string
         your IMAP connection host
   -P int
-        your IMAP conneciton port
+        your IMAP connection port
   -a string
         your Help Scout App ID
   -s string
@@ -64,6 +64,9 @@ imap2helpscout runs as a command line program, with a few basic options that's n
 		An email UID to start from
 		Both of the resume flags needs to be specified at the same
 		time for them to work
+  -search string
+		the IMAP UID search string, e.g. 'ALL' or 'HEADER Message-ID <04127894@email.com>'
+		(default 'ALL')
   -v    verbose; prints all commands to the IMAP server and to the Help Scout API
   -vv	ULTRA verbose; prints everything above AND *every* response from both the IMAP server and the Help Scout API, including all post data to the Help Scout API (even attachments encoded as base64 in the post data)
 ```
