@@ -3,16 +3,23 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
+	"net/mail"
 	"os"
 	"path"
 	"strings"
 	"sync"
+	"time"
+	"unicode"
 
 	"github.com/BrianLeishman/go-helpscout"
 	"github.com/BrianLeishman/go-imap"
 	"github.com/yusukebe/go-pngquant"
 	"gopkg.in/cheggaaa/pb.v1"
 	"gopkg.in/gographics/imagick.v2/imagick"
+	"jaytaylor.com/html2text"
 )
 
 func check(msg string, err error) {
@@ -32,7 +39,49 @@ func (i *arrayFlags) Set(value string) error {
 	return nil
 }
 
+func strEmpty(s string) bool {
+	if len(s) == 0 {
+		return true
+	}
+
+	r := []rune(s)
+	l := len(r)
+
+	for l > 0 {
+		l--
+		if !unicode.IsSpace(r[l]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func verifyEmailAddress(e string) (email string, ok bool) {
+	if strEmpty(e) {
+		return
+	}
+
+	e = strings.TrimSpace(e)
+
+	a, err := mail.ParseAddress("<" + e + ">")
+	if err != nil {
+		return
+	}
+
+	if strings.IndexByte(e, '@') > 64 {
+		return
+	}
+
+	return strings.ToLower(a.Address), true
+}
+
 func main() {
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	username := flag.String("u", "", "your IMAP username")
 	password := flag.String("p", "", "your IMAP password")
 	server := flag.String("h", "", "your IMAP connection host")
@@ -46,6 +95,8 @@ func main() {
 
 	resumeFolder := flag.String("resume-folder", "", "what folder would you like to start from?")
 	resumeUID := flag.Int("resume-uid", 0, "what email UID would you like to start from?")
+
+	search := flag.String("search", "ALL", "the IMAP UID search string, e.g. 'ALL' or 'HEADER Message-ID <04127894@email.com>'")
 
 	verbose := flag.Bool("v", false, "verbose")
 	moreVerbose := flag.Bool("vv", false, "more verbose")
@@ -82,7 +133,7 @@ func main() {
 		*verbose = true
 	}
 
-	helpScoutCh := make(chan struct{}, 3)
+	helpScoutCh := make(chan struct{}, 4)
 	wg := sync.WaitGroup{}
 
 	imap.Verbose = *verbose
@@ -92,12 +143,18 @@ func main() {
 	helpscout.ShowPostData = *moreVerbose
 	helpscout.ShowResponse = *moreVerbose
 	helpscout.RateLimitMinute = 800
-	// helpscout.RetryCount = 0
+	helpscout.RetryCount = 5
 
 	started := true
 	if len(*resumeFolder) != 0 && *resumeUID != 0 {
 		started = false
 	}
+
+	// search := "ALL"
+	// originalSearch := search
+	// if !started {
+	// 	search = fmt.Sprintf("%d:*", *resumeUID)
+	// }
 
 	fmt.Println("Getting some things ready, one sec...")
 
@@ -147,7 +204,7 @@ func main() {
 		err = im.SelectFolder(f)
 		check("Failed to select folder", err)
 
-		uids, err := im.GetUIDs("ALL")
+		uids, err := im.GetUIDs(*search)
 		check("Failed to get uids", err)
 
 		for _, u := range uids {
@@ -157,20 +214,32 @@ func main() {
 					started = true
 				} else {
 					count--
+					uids = uids[1:]
 					continue
 				}
 			}
-			func() {
-				// if !*verbose {
-				defer bar.Increment()
-				// }
+		}
 
-				emails, err := im.GetEmails(u)
+		chunk := 16
+		for i := 0; i < len(uids); i += chunk {
+
+			func() {
+				var u []int
+				if i+chunk > len(uids) {
+					u = uids[i:]
+				} else {
+					u = uids[i : i+chunk]
+				}
+
+				defer bar.Add(len(u))
+
+				emails, err := im.GetEmails(u...)
 				check("Failed to get emails", err)
 
 				// e should be only one email, but it could also be no elements
 				// since every UID searched is not guaranteed to return an email
 				for _, e := range emails {
+					time.Sleep(time.Duration((1 * int64(time.Minute)) / int64(helpscout.RateLimitMinute)))
 					wg.Add(1)
 
 					go func(e *imap.Email, f string) {
@@ -178,7 +247,7 @@ func main() {
 
 						var err error
 
-						if len(e.From) == 0 || len(e.To) == 0 {
+						if len(e.From) == 0 && len(e.To) == 0 {
 							return
 						}
 
@@ -191,22 +260,45 @@ func main() {
 							}
 							break
 						}
+						var ok bool
+						if from.Email == nil {
+							from.Email = username
+						} else {
+							*from.Email, ok = verifyEmailAddress(*from.Email)
+							if !ok {
+								*from.Email = *username
+							}
+						}
+
 						for e := range e.To {
+							e, ok := verifyEmailAddress(e)
+							if !ok {
+								e = *username
+							}
 							to = helpscout.Customer{
 								Email: &e,
 								// FirstName: &n,
 							}
 							break
 						}
+						if to.Email == nil {
+							to.Email = username
+						} else {
+							*to.Email, ok = verifyEmailAddress(*to.Email)
+							if !ok {
+								*to.Email = *username
+							}
+						}
 
+						stripped, _ := html2text.FromString(e.HTML)
 						var content string
-						if len(e.HTML) != 0 {
+						if !strEmpty(stripped) {
 							content = e.HTML
 						} else {
 							content = e.Text
 						}
 
-						if len(content) == 0 {
+						if strEmpty(content) {
 							if len(e.Attachments) == 0 {
 								return
 							}
@@ -214,7 +306,7 @@ func main() {
 						}
 
 						var subject string
-						if len(e.Subject) == 0 {
+						if strEmpty(e.Subject) {
 							subject = "No Subject"
 						} else {
 							subject = e.Subject
@@ -249,49 +341,38 @@ func main() {
 							for _, a := range e.Attachments {
 								wg.Add(1)
 								go func(a imap.Attachment) {
+									helpScoutCh <- struct{}{}
+									defer func() { <-helpScoutCh }()
 									defer wg.Done()
 
 									if a.MimeType == "image/jpeg" {
-										// Help Scout currently has a bug where some jpg's can't
-										// be uploaded due to some issue with the part of their system that
-										// checks if a jpg needs to be rotated or not
-										// So lets just turn that jpg into a png!
-
-										// img, err := jpeg.Decode(bytes.NewReader(a.Content))
-										// check("failed to decode jpeg", err)
-
-										// var b bytes.Buffer
-										// w := bufio.NewWriter(&b)
-										// err = jpeg.Encode(w, img, &jpeg.Options{
-										// 	Quality: 100,
-										// })
-										// check("failed to encode jpeg", err)
-
-										// w.Flush()
-										// _, err = b.Read(a.Content)
-										// check("failed to read jpeg into attachment content", err)
-
 										mw := imagick.NewMagickWand()
 										defer mw.Destroy()
 
 										err = mw.ReadImageBlob(a.Content)
-										check("failed to read image blob", err)
-
-										// f, err := os.Create(a.Name)
-										// check("failed to create file", err)
-										// defer f.Close()
+										if *verbose && err != nil {
+											log.Println("failed to read image blob")
+											return
+										}
 
 										mw.SetImageFormat("PNG")
 
 										err = mw.StripImage()
-										check("failed to strip exif", err)
+										if *verbose && err != nil {
+											log.Println("failed to strip exif")
+											return
+										}
 
 										ext := path.Ext(a.Name)
 										a.Name = a.Name[0:len(a.Name)-len(ext)] + ".png"
 										// pngs are GIANT though compared to jpgs, so here we compress the crap out of it
 										mw.ResetIterator()
-										a.Content, err = pngquant.CompressBytes(mw.GetImageBlob(), "3")
-										check("failed to compress png", err)
+										compressed, err := pngquant.CompressBytes(mw.GetImageBlob(), "3")
+										if *verbose && err != nil {
+											log.Println("failed to compress png")
+											return
+										}
+										a.Content = compressed
 										a.MimeType = "image/png"
 									}
 
@@ -301,9 +382,7 @@ func main() {
 										return
 									}
 
-									helpScoutCh <- struct{}{}
 									err := hs.UploadAttachment(conversationID, threadID, a.Name, a.MimeType, a.Content)
-									<-helpScoutCh
 									// if err != nil {
 									// 	check("Failed to upload attachment", fmt.Errorf("uid: %d, folder: %s, attachment: %s\n%s\n%s", e.UID, f, a, e, err))
 									// }
