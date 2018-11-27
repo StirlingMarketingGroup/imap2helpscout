@@ -11,7 +11,6 @@ import (
 	"path"
 	"strings"
 	"sync"
-	"time"
 	"unicode"
 
 	"github.com/BrianLeishman/go-helpscout"
@@ -142,19 +141,12 @@ func main() {
 	helpscout.Verbose = *verbose
 	helpscout.ShowPostData = *moreVerbose
 	helpscout.ShowResponse = *moreVerbose
-	helpscout.RateLimitMinute = 800
 	helpscout.RetryCount = 5
 
 	started := true
 	if len(*resumeFolder) != 0 && *resumeUID != 0 {
 		started = false
 	}
-
-	// search := "ALL"
-	// originalSearch := search
-	// if !started {
-	// 	search = fmt.Sprintf("%d:*", *resumeUID)
-	// }
 
 	fmt.Println("Getting some things ready, one sec...")
 
@@ -163,10 +155,8 @@ func main() {
 	defer im.Close()
 
 	var count int
-	// if !*verbose {
 	count, err = im.GetTotalEmailCountStartingFromExcluding(*resumeFolder, excludedFolders)
 	check("Failed to get total email count", err)
-	// }
 
 	folders, err := im.GetFolders()
 	check("Failed to get folders", err)
@@ -239,7 +229,6 @@ func main() {
 				// e should be only one email, but it could also be no elements
 				// since every UID searched is not guaranteed to return an email
 				for _, e := range emails {
-					time.Sleep(time.Duration((1 * int64(time.Minute)) / int64(helpscout.RateLimitMinute)))
 					wg.Add(1)
 
 					go func(e *imap.Email, f string) {
@@ -383,9 +372,6 @@ func main() {
 									}
 
 									err := hs.UploadAttachment(conversationID, threadID, a.Name, a.MimeType, a.Content)
-									// if err != nil {
-									// 	check("Failed to upload attachment", fmt.Errorf("uid: %d, folder: %s, attachment: %s\n%s\n%s", e.UID, f, a, e, err))
-									// }
 									if err != nil {
 										return
 									}
@@ -399,9 +385,6 @@ func main() {
 	}
 	wg.Wait()
 
-	// if !*verbose {
 	bar.Finish()
-	// } else {
-	// 	log.Println("we made it!")
-	// }
+
 }
