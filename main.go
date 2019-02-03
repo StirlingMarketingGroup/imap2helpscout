@@ -13,11 +13,11 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/BrianLeishman/go-helpscout"
-	"github.com/BrianLeishman/go-imap"
-	"github.com/yusukebe/go-pngquant"
-	"gopkg.in/cheggaaa/pb.v1"
-	"gopkg.in/gographics/imagick.v2/imagick"
+	helpscout "github.com/BrianLeishman/go-helpscout"
+	imap "github.com/BrianLeishman/go-imap"
+	pngquant "github.com/yusukebe/go-pngquant"
+	pb "gopkg.in/cheggaaa/pb.v1"
+	"gopkg.in/gographics/imagick.v3/imagick"
 	"jaytaylor.com/html2text"
 )
 
@@ -99,6 +99,8 @@ func main() {
 
 	verbose := flag.Bool("v", false, "verbose")
 	moreVerbose := flag.Bool("vv", false, "more verbose")
+
+	test := flag.Bool("t", false, "test run")
 
 	flag.Parse()
 
@@ -303,24 +305,26 @@ func main() {
 
 						var conversationID, threadID int
 						helpScoutCh <- struct{}{}
-						if *from.Email == *username {
-							conversationID, threadID, err = hs.NewConversationWithReply(
-								subject,
-								to,
-								e.Received,
-								[]string{f},
-								content,
-								len(e.Attachments) != 0,
-							)
-						} else {
-							conversationID, threadID, err = hs.NewConversationWithMessage(
-								subject,
-								from,
-								e.Received,
-								[]string{f},
-								content,
-								len(e.Attachments) != 0,
-							)
+						if !*test {
+							if *from.Email == *username {
+								conversationID, threadID, err = hs.NewConversationWithReply(
+									subject,
+									to,
+									e.Received,
+									[]string{f},
+									content,
+									len(e.Attachments) != 0,
+								)
+							} else {
+								conversationID, threadID, err = hs.NewConversationWithMessage(
+									subject,
+									from,
+									e.Received,
+									[]string{f},
+									content,
+									len(e.Attachments) != 0,
+								)
+							}
 						}
 						<-helpScoutCh
 						if err != nil {
@@ -330,6 +334,7 @@ func main() {
 							for _, a := range e.Attachments {
 								wg.Add(1)
 								go func(a imap.Attachment) {
+									var err error
 									helpScoutCh <- struct{}{}
 									defer func() { <-helpScoutCh }()
 									defer wg.Done()
@@ -371,7 +376,9 @@ func main() {
 										return
 									}
 
-									err := hs.UploadAttachment(conversationID, threadID, a.Name, a.MimeType, a.Content)
+									if !*test {
+										err = hs.UploadAttachment(conversationID, threadID, a.Name, a.MimeType, a.Content)
+									}
 									if err != nil {
 										return
 									}
