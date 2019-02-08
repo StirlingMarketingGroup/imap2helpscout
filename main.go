@@ -177,6 +177,9 @@ func main() {
 	imagick.Initialize()
 	defer imagick.Terminate()
 
+	chunk := 16
+	emailsCh := make(chan struct{}, chunk*2)
+
 	for _, f := range folders {
 		if !started && f != *resumeFolder {
 			continue
@@ -212,7 +215,6 @@ func main() {
 			}
 		}
 
-		chunk := 16
 		for i := 0; i < len(uids); i += chunk {
 
 			func() {
@@ -232,9 +234,10 @@ func main() {
 				// since every UID searched is not guaranteed to return an email
 				for _, e := range emails {
 					wg.Add(1)
-
+					emailsCh <- struct{}{}
 					go func(e *imap.Email, f string) {
 						defer wg.Done()
+						defer func() { <-emailsCh }()
 
 						var err error
 
