@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"log"
-	"net/http"
-	_ "net/http/pprof"
+
+	// "net/http"
+	// _ "net/http/pprof"
 	"net/mail"
 	"os"
 	"path"
@@ -15,9 +18,11 @@ import (
 
 	helpscout "github.com/BrianLeishman/go-helpscout"
 	imap "github.com/BrianLeishman/go-imap"
+	homedir "github.com/mitchellh/go-homedir"
 	pngquant "github.com/yusukebe/go-pngquant"
 	pb "gopkg.in/cheggaaa/pb.v1"
 	"gopkg.in/gographics/imagick.v3/imagick"
+	yaml "gopkg.in/yaml.v2"
 	"jaytaylor.com/html2text"
 )
 
@@ -75,11 +80,17 @@ func verifyEmailAddress(e string) (email string, ok bool) {
 	return strings.ToLower(a.Address), true
 }
 
+type progress struct {
+	Account string `yaml:"account"`
+	Folder  string `yaml:"folder"`
+	UIDs    []int  `yaml:"uids"`
+}
+
 func main() {
 
-	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
+	// go func() {
+	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
+	// }()
 
 	username := flag.String("u", "", "your IMAP username")
 	password := flag.String("p", "", "your IMAP password")
@@ -100,34 +111,110 @@ func main() {
 	verbose := flag.Bool("v", false, "verbose")
 	moreVerbose := flag.Bool("vv", false, "more verbose")
 
-	test := flag.Bool("t", false, "test run")
+	forceRestart := flag.Bool("force-restart", false, "ignore any resume data/flags and force a full restart of the import")
+	ignoreResumeData := flag.Bool("ignore-resume-data", false, "ignores any resume data")
+
+	chunkSize := flag.Int("chunk-size", 16, "how many emails to download per chunk (how many bodies to ask the server for per fetch request)")
+	chunks := flag.Int("chunks", 4, "max number of simultaneous chunks (e.g. with 4: if 4 chunks have emails uploading to Help Scout, don't download another chunk yet)")
+
+	test := flag.Bool("t", false, "test run (don't actually import anything to Help Scout)")
 
 	flag.Parse()
 
+	profFileName, err := homedir.Expand("~/.imap2helpscout")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	progFile, err := os.OpenFile(profFileName, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer progFile.Close()
+
+	progs := make([]progress, 0)
+	progsMx := sync.Mutex{}
+	buf := bytes.NewBuffer(nil)
+	io.Copy(buf, progFile)
+	err = yaml.Unmarshal(buf.Bytes(), &progs)
+	if err != nil {
+		log.Fatalln("could not parse progress file (~/.imap2helpscout):", err)
+	}
+
+	progExists := false
+	progI := 0
+
+	for i, p := range progs {
+		if p.Account == *username {
+			if *ignoreResumeData {
+				progs = append(progs[:i], progs[i+1:]...)
+			} else {
+				progI = i
+				progExists = true
+			}
+			break
+		}
+	}
+
+	if *forceRestart {
+		*resumeFolder = ""
+		*resumeUID = 0
+	} else if progExists {
+		*resumeFolder = progs[progI].Folder
+	}
+
+	if !progExists {
+		progI = len(progs)
+		progs = append(progs, progress{Account: *username})
+	}
+
+	writeProgs := func() {
+		err := progFile.Truncate(0)
+		if err != nil {
+			log.Println(err)
+		}
+
+		b, err := yaml.Marshal(progs)
+		if err != nil {
+			log.Println(err)
+		}
+
+		_, err = progFile.WriteAt(b, 0)
+		if err != nil {
+			log.Println(err)
+		}
+
+		err = progFile.Sync()
+		if err != nil {
+			log.Println(err)
+		}
+	}
+
 	if len(*username) == 0 {
-		fmt.Println("your IMAP username is required (-u)")
-		os.Exit(1)
+		log.Fatal("your IMAP username is required (-u)")
 	}
 	if len(*password) == 0 {
-		fmt.Println("your IMAP password is required (-p)")
-		os.Exit(1)
+		log.Fatal("your IMAP password is required (-p)")
 	}
 	if len(*server) == 0 {
-		fmt.Println("your IMAP host is required (-h)")
-		os.Exit(1)
+		log.Fatal("your IMAP host is required (-h)")
 	}
 	if *port == 0 {
-		fmt.Println("your IMAP port is required (-P)")
-		os.Exit(1)
+		log.Fatal("your IMAP port is required (-P)")
 	}
 
 	if len(*appID) == 0 {
-		fmt.Println("your Help Scout App ID is required (-a)")
-		os.Exit(1)
+		log.Fatal("your Help Scout App ID is required (-a)")
 	}
 	if len(*appSecret) == 0 {
-		fmt.Println("your Help Scout App Secret is required (-s)")
-		os.Exit(1)
+		log.Fatal("your Help Scout App Secret is required (-s)")
+	}
+
+	if *chunkSize < 1 {
+		log.Fatal("chunk size can't be smaller than 1")
+	}
+	if *chunks < 1 {
+		log.Fatal("chunks can't be smaller than 1")
 	}
 
 	if *moreVerbose {
@@ -145,23 +232,36 @@ func main() {
 	helpscout.ShowResponse = *moreVerbose
 	helpscout.RetryCount = 5
 
-	started := true
-	if len(*resumeFolder) != 0 && *resumeUID != 0 {
-		started = false
-	}
-
 	fmt.Println("Getting some things ready, one sec...")
 
 	im, err := imap.New(*username, *password, *server, *port)
 	check("Failed to connect to IMAP server", err)
 	defer im.Close()
 
+	folders, err := im.GetFolders()
+	check("Failed to get folders", err)
+
+	resumeFolderFound := false
+	if !*forceRestart && *resumeFolder != "" {
+		l := strings.ToLower(*resumeFolder)
+		for i, f := range folders {
+			if strings.ToLower(f) == l {
+				folders = folders[i:]
+				*resumeFolder = f
+				resumeFolderFound = true
+				break
+			}
+		}
+		if !resumeFolderFound {
+			log.Fatal("resume folder doesn't exist on server")
+		}
+	}
+
 	var count int
 	count, err = im.GetTotalEmailCountStartingFromExcluding(*resumeFolder, excludedFolders)
 	check("Failed to get total email count", err)
 
-	folders, err := im.GetFolders()
-	check("Failed to get folders", err)
+	bar := pb.StartNew(count)
 
 	hs, err := helpscout.New(*appID, *appSecret)
 	check("Failed to connect to Help Scout", err)
@@ -169,66 +269,75 @@ func main() {
 	err = hs.SelectMailbox(*username)
 	check("Failed to select mailbox", err)
 
-	var bar *pb.ProgressBar
-	if started {
-		bar = pb.StartNew(count)
-	}
-
 	imagick.Initialize()
 	defer imagick.Terminate()
 
-	chunk := 16
-	emailsCh := make(chan struct{}, chunk*2)
+	emailsCh := make(chan struct{}, (*chunkSize)*(*chunks))
 
 	for _, f := range folders {
-		if !started && f != *resumeFolder {
-			continue
-		}
-
-		skip := false
+		exclude := false
 		for _, ef := range excludedFolders {
 			if strings.HasPrefix(f, ef) {
-				skip = true
+				exclude = true
 				break
 			}
 		}
-		if skip {
+		if exclude {
 			continue
 		}
 
 		err = im.SelectFolder(f)
-		check("Failed to select folder", err)
+		check("failed to select folder", err)
 
 		uids, err := im.GetUIDs(*search)
-		check("Failed to get uids", err)
+		check("failed to get uids", err)
 
-		for _, u := range uids {
-			if !started {
-				if u >= *resumeUID {
-					bar = pb.StartNew(count)
-					started = true
-				} else {
-					count--
-					uids = uids[1:]
-					continue
+		if !*forceRestart && progExists && len(progs[progI].UIDs) != 0 {
+			progUIDsMap := make(map[int]struct{}, len(progs[progI].UIDs))
+			for _, uid := range progs[progI].UIDs {
+				progUIDsMap[uid] = struct{}{}
+			}
+			newUIDs := make([]int, 0, len(uids))
+			for _, u := range uids {
+				if _, ok := progUIDsMap[u]; !ok {
+					newUIDs = append(newUIDs, u)
 				}
 			}
+			progExists = false
+			uids = newUIDs
+			*resumeUID = 0
+		} else if !*forceRestart && *resumeUID != 0 && *resumeFolder == f {
+			skipped := 0
+			for i, u := range uids {
+				if u >= *resumeUID {
+					uids = uids[i:]
+					*resumeUID = 0
+					skipped++
+					break
+				}
+			}
+			// bar = pb.StartNew(count - skipped)
+			bar.SetTotal(count - skipped)
+		} else {
+			progs[progI].Folder = f
+			progs[progI].UIDs = make([]int, 0, len(uids))
+			writeProgs()
 		}
 
-		for i := 0; i < len(uids); i += chunk {
+		for i := 0; i < len(uids); i += *chunkSize {
 
 			func() {
 				var u []int
-				if i+chunk > len(uids) {
+				if i+*chunkSize > len(uids) {
 					u = uids[i:]
 				} else {
-					u = uids[i : i+chunk]
+					u = uids[i : i+*chunkSize]
 				}
 
 				defer bar.Add(len(u))
 
 				emails, err := im.GetEmails(u...)
-				check("Failed to get emails", err)
+				check("failed to get emails", err)
 
 				// e should be only one email, but it could also be no elements
 				// since every UID searched is not guaranteed to return an email
@@ -236,8 +345,17 @@ func main() {
 					wg.Add(1)
 					emailsCh <- struct{}{}
 					go func(e *imap.Email, f string) {
-						defer wg.Done()
-						defer func() { <-emailsCh }()
+						defer func() {
+							progsMx.Lock()
+
+							progs[progI].UIDs = append(progs[progI].UIDs, e.UID)
+							writeProgs()
+
+							progsMx.Unlock()
+
+							<-emailsCh
+							wg.Done()
+						}()
 
 						var err error
 
@@ -395,6 +513,11 @@ func main() {
 	}
 	wg.Wait()
 
-	bar.Finish()
+	if bar != nil {
+		bar.Finish()
+	}
+
+	progs = append(progs[:progI], progs[progI+1:]...)
+	writeProgs()
 
 }
