@@ -117,6 +117,8 @@ func main() {
 	chunkSize := flag.Int("chunk-size", 16, "how many emails to download per chunk (how many bodies to ask the server for per fetch request)")
 	chunks := flag.Int("chunks", 4, "max number of simultaneous chunks (e.g. with 4: if 4 chunks have emails uploading to Help Scout, don't download another chunk yet)")
 
+	rateLimitPercent := flag.Float64("rate-limit-percent", 1, "the percent (as a decimal) of how much of the available rate limit to use. E.g., rate limit is 400/minute; if .75 is given, then 300/minute will be this instance's effective rate limit")
+
 	test := flag.Bool("t", false, "test run (don't actually import anything to Help Scout)")
 
 	flag.Parse()
@@ -231,6 +233,7 @@ func main() {
 	helpscout.ShowPostData = *moreVerbose
 	helpscout.ShowResponse = *moreVerbose
 	helpscout.RetryCount = 5
+	helpscout.RateLimitPercent = *rateLimitPercent
 
 	fmt.Println("Getting some things ready, one sec...")
 
