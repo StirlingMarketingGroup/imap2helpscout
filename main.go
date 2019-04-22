@@ -370,18 +370,18 @@ func main() {
 
 						for e := range e.From {
 							from = helpscout.Customer{
-								Email: &e,
+								Email: e,
 								// FirstName: &n,
 							}
 							break
 						}
 						var ok bool
-						if from.Email == nil {
-							from.Email = username
+						if len(from.Email) == 0 {
+							from.Email = *username
 						} else {
-							*from.Email, ok = verifyEmailAddress(*from.Email)
+							from.Email, ok = verifyEmailAddress(from.Email)
 							if !ok {
-								*from.Email = *username
+								from.Email = *username
 							}
 						}
 
@@ -391,17 +391,17 @@ func main() {
 								e = *username
 							}
 							to = helpscout.Customer{
-								Email: &e,
+								Email: e,
 								// FirstName: &n,
 							}
 							break
 						}
-						if to.Email == nil {
-							to.Email = username
+						if len(to.Email) == 0 {
+							to.Email = *username
 						} else {
-							*to.Email, ok = verifyEmailAddress(*to.Email)
+							to.Email, ok = verifyEmailAddress(to.Email)
 							if !ok {
-								*to.Email = *username
+								to.Email = *username
 							}
 						}
 
@@ -430,7 +430,7 @@ func main() {
 						var conversationID, threadID int
 						helpScoutCh <- struct{}{}
 						if !*test {
-							if *from.Email == *username {
+							if from.Email == *username {
 								conversationID, threadID, err = hs.NewConversationWithReply(
 									subject,
 									to,
@@ -438,6 +438,7 @@ func main() {
 									[]string{f},
 									content,
 									len(e.Attachments) != 0,
+									true,
 								)
 							} else {
 								conversationID, threadID, err = hs.NewConversationWithMessage(
@@ -447,6 +448,7 @@ func main() {
 									[]string{f},
 									content,
 									len(e.Attachments) != 0,
+									true,
 								)
 							}
 						}
