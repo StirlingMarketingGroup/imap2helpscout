@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -22,7 +23,8 @@ import (
 	pngquant "github.com/yusukebe/go-pngquant"
 	pb "gopkg.in/cheggaaa/pb.v1"
 	"gopkg.in/gographics/imagick.v3/imagick"
-	yaml "gopkg.in/yaml.v2"
+
+	// yaml "gopkg.in/yaml.v2"
 	"jaytaylor.com/html2text"
 )
 
@@ -81,9 +83,9 @@ func verifyEmailAddress(e string) (email string, ok bool) {
 }
 
 type progress struct {
-	Account string `yaml:"account"`
-	Folder  string `yaml:"folder"`
-	UIDs    []int  `yaml:"uids"`
+	Account string `json:"account"`
+	Folder  string `json:"folder"`
+	UIDs    []int  `json:"uids"`
 }
 
 func main() {
@@ -138,9 +140,9 @@ func main() {
 	progsMx := sync.Mutex{}
 	buf := bytes.NewBuffer(nil)
 	io.Copy(buf, progFile)
-	err = yaml.Unmarshal(buf.Bytes(), &progs)
+	err = json.Unmarshal(buf.Bytes(), &progs)
 	if err != nil {
-		log.Fatalln("could not parse progress file (~/.imap2helpscout):", err)
+		// log.Fatalln("could not parse progress file (~/.imap2helpscout):", err)
 	}
 
 	progExists := false
@@ -176,7 +178,7 @@ func main() {
 			log.Println(err)
 		}
 
-		b, err := yaml.Marshal(progs)
+		b, err := json.MarshalIndent(progs, "", "  ")
 		if err != nil {
 			log.Println(err)
 		}
