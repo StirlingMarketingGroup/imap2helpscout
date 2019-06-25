@@ -123,6 +123,12 @@ func main() {
 
 	test := flag.Bool("t", false, "test run (don't actually import anything to Help Scout)")
 
+	var unread bool
+	flag.BoolVar(&unread, "unread", false, "don't mark imported mail as closed")
+
+	var includedFolders arrayFlags
+	flag.Var(&includedFolders, "include-folder", "included folders (only these folders will be imported if specified)")
+
 	flag.Parse()
 
 	profFileName, err := homedir.Expand("~/.imap2helpscout")
@@ -246,6 +252,22 @@ func main() {
 	folders, err := im.GetFolders()
 	check("Failed to get folders", err)
 
+	if len(includedFolders) != 0 {
+		excludedFolders = make(arrayFlags, 0, len(folders))
+		for _, f := range folders {
+			included := false
+			for _, i := range includedFolders {
+				if strings.ToLower(f) == strings.ToLower(i) {
+					included = true
+					break
+				}
+			}
+			if !included {
+				excludedFolders = append(excludedFolders, f)
+			}
+		}
+	}
+
 	resumeFolderFound := false
 	if !*forceRestart && *resumeFolder != "" {
 		l := strings.ToLower(*resumeFolder)
@@ -339,7 +361,7 @@ func main() {
 					u = uids[i : i+*chunkSize]
 				}
 
-				defer bar.Add(len(u))
+				// defer bar.Add(len(u))
 
 				emails, err := im.GetEmails(u...)
 				check("failed to get emails", err)
@@ -361,6 +383,9 @@ func main() {
 							<-emailsCh
 							wg.Done()
 						}()
+
+						var iWg sync.WaitGroup
+						defer bar.Increment()
 
 						var err error
 
@@ -440,7 +465,7 @@ func main() {
 									[]string{f},
 									content,
 									len(e.Attachments) != 0,
-									true,
+									!unread,
 								)
 							} else {
 								conversationID, threadID, err = hs.NewConversationWithMessage(
@@ -450,7 +475,7 @@ func main() {
 									[]string{f},
 									content,
 									len(e.Attachments) != 0,
-									true,
+									!unread,
 								)
 							}
 						}
@@ -461,11 +486,13 @@ func main() {
 						if len(e.Attachments) != 0 {
 							for _, a := range e.Attachments {
 								wg.Add(1)
+								iWg.Add(1)
 								go func(a imap.Attachment) {
 									var err error
 									helpScoutCh <- struct{}{}
 									defer func() { <-helpScoutCh }()
 									defer wg.Done()
+									defer iWg.Done()
 
 									if a.MimeType == "image/jpeg" {
 										mw := imagick.NewMagickWand()
@@ -513,6 +540,7 @@ func main() {
 								}(a)
 							}
 						}
+						iWg.Wait()
 					}(e, f)
 				}
 			}()
