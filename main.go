@@ -12,7 +12,6 @@ import (
 	// _ "net/http/pprof"
 	"net/mail"
 	"os"
-	"path"
 	"strings"
 	"sync"
 	"unicode"
@@ -20,9 +19,7 @@ import (
 	helpscout "github.com/BrianLeishman/go-helpscout"
 	imap "github.com/BrianLeishman/go-imap"
 	homedir "github.com/mitchellh/go-homedir"
-	pngquant "github.com/yusukebe/go-pngquant"
 	pb "gopkg.in/cheggaaa/pb.v1"
-	"gopkg.in/gographics/imagick.v3/imagick"
 
 	// yaml "gopkg.in/yaml.v2"
 	"jaytaylor.com/html2text"
@@ -296,8 +293,8 @@ func main() {
 	err = hs.SelectMailbox(*username)
 	check("Failed to select mailbox", err)
 
-	imagick.Initialize()
-	defer imagick.Terminate()
+	// imagick.Initialize()
+	// defer imagick.Terminate()
 
 	emailsCh := make(chan struct{}, (*chunkSize)*(*chunks))
 
@@ -494,36 +491,36 @@ func main() {
 									defer wg.Done()
 									defer iWg.Done()
 
-									if a.MimeType == "image/jpeg" {
-										mw := imagick.NewMagickWand()
-										defer mw.Destroy()
+									// if a.MimeType == "image/jpeg" {
+									// 	mw := imagick.NewMagickWand()
+									// 	defer mw.Destroy()
 
-										err = mw.ReadImageBlob(a.Content)
-										if *verbose && err != nil {
-											log.Println("failed to read image blob")
-											return
-										}
+									// 	err = mw.ReadImageBlob(a.Content)
+									// 	if *verbose && err != nil {
+									// 		log.Println("failed to read image blob")
+									// 		return
+									// 	}
 
-										mw.SetImageFormat("PNG")
+									// 	mw.SetImageFormat("PNG")
 
-										err = mw.StripImage()
-										if *verbose && err != nil {
-											log.Println("failed to strip exif")
-											return
-										}
+									// 	err = mw.StripImage()
+									// 	if *verbose && err != nil {
+									// 		log.Println("failed to strip exif")
+									// 		return
+									// 	}
 
-										ext := path.Ext(a.Name)
-										a.Name = a.Name[0:len(a.Name)-len(ext)] + ".png"
-										// pngs are GIANT though compared to jpgs, so here we compress the crap out of it
-										mw.ResetIterator()
-										compressed, err := pngquant.CompressBytes(mw.GetImageBlob(), "3")
-										if *verbose && err != nil {
-											log.Println("failed to compress png")
-											return
-										}
-										a.Content = compressed
-										a.MimeType = "image/png"
-									}
+									// 	ext := path.Ext(a.Name)
+									// 	a.Name = a.Name[0:len(a.Name)-len(ext)] + ".png"
+									// 	// pngs are GIANT though compared to jpgs, so here we compress the crap out of it
+									// 	mw.ResetIterator()
+									// 	compressed, err := pngquant.CompressBytes(mw.GetImageBlob(), "3")
+									// 	if *verbose && err != nil {
+									// 		log.Println("failed to compress png")
+									// 		return
+									// 	}
+									// 	a.Content = compressed
+									// 	a.MimeType = "image/png"
+									// }
 
 									if len(a.Content) > 1000*1000*10 {
 										// Help Scout only allows images 10MB or smaller
