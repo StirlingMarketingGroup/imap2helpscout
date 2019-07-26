@@ -176,6 +176,10 @@ func main() {
 	}
 
 	writeProgs := func() {
+		if *test {
+			return
+		}
+
 		err := progFile.Truncate(0)
 		if err != nil {
 			log.Println(err)
@@ -301,7 +305,7 @@ func main() {
 	for _, f := range folders {
 		exclude := false
 		for _, ef := range excludedFolders {
-			if strings.HasPrefix(f, ef) {
+			if f == ef {
 				exclude = true
 				break
 			}
