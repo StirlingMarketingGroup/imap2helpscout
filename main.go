@@ -459,7 +459,7 @@ func main() {
 						helpScoutCh <- struct{}{}
 						if !*test {
 							if from.Email == *username {
-								conversationID, threadID, err = hs.NewConversationWithReply(
+								conversationID, threadID, _, err = hs.NewConversationWithReply(
 									subject,
 									to,
 									e.Received,
@@ -467,9 +467,10 @@ func main() {
 									content,
 									len(e.Attachments) != 0,
 									!unread,
+									0,
 								)
 							} else {
-								conversationID, threadID, err = hs.NewConversationWithMessage(
+								conversationID, threadID, _, err = hs.NewConversationWithMessage(
 									subject,
 									from,
 									e.Received,
@@ -477,6 +478,7 @@ func main() {
 									content,
 									len(e.Attachments) != 0,
 									!unread,
+									0,
 								)
 							}
 						}
@@ -533,7 +535,7 @@ func main() {
 									}
 
 									if !*test {
-										err = hs.UploadAttachment(conversationID, threadID, a.Name, a.MimeType, a.Content)
+										_, err = hs.UploadAttachment(conversationID, threadID, a.Name, a.MimeType, a.Content)
 									}
 									if err != nil {
 										return
