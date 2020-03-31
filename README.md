@@ -55,6 +55,8 @@ imap2helpscout runs as a command line program, with a few basic options that's n
         your Help Scout App ID
   -s string
         your Help Scout App Secret
+  -m string
+        your Help Scout mailbox (defaults to IMAP username)
   -exclude-folder string
 		A folder to exclude from the import
 		(tip: you can specify this flag multiple times)
