@@ -16,10 +16,10 @@ import (
 	"sync"
 	"unicode"
 
-	helpscout "github.com/BrianLeishman/go-helpscout"
-	imap "github.com/BrianLeishman/go-imap"
-	homedir "github.com/mitchellh/go-homedir"
-	pb "gopkg.in/cheggaaa/pb.v1"
+	"github.com/BrianLeishman/go-helpscout"
+	"github.com/BrianLeishman/go-imap"
+	"github.com/mitchellh/go-homedir"
+	"gopkg.in/cheggaaa/pb.v1"
 
 	// yaml "gopkg.in/yaml.v2"
 	"jaytaylor.com/html2text"
@@ -98,6 +98,8 @@ func main() {
 
 	appID := flag.String("a", "", "your Help Scout App ID")
 	appSecret := flag.String("s", "", "your Help Scout App Secret")
+
+	mailbox := flag.String("m", "", "your Help Scout mailbox (defaults to IMAP username)")
 
 	var excludedFolders arrayFlags
 	flag.Var(&excludedFolders, "exclude-folder", "excluded folders")
@@ -228,6 +230,10 @@ func main() {
 		log.Fatal("chunks can't be smaller than 1")
 	}
 
+	if len(*mailbox) == 0 {
+		*mailbox = *username
+	}
+
 	if *moreVerbose {
 		*verbose = true
 	}
@@ -294,7 +300,7 @@ func main() {
 	hs, err := helpscout.New(*appID, *appSecret)
 	check("Failed to connect to Help Scout", err)
 
-	err = hs.SelectMailbox(*username)
+	err = hs.SelectMailbox(*mailbox)
 	check("Failed to select mailbox", err)
 
 	// imagick.Initialize()
